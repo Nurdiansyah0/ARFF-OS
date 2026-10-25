@@ -21,6 +21,10 @@ node_modules/
 dist/
 .next/
 
+# Self-Hosted Mail Server (Stalwart) Storage & Keys
+stalwart-data/
+deploy/mail/data/
+
 # OS and Editor
 .DS_Store
 Thumbs.db

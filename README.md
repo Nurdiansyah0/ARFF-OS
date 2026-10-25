@@ -46,6 +46,9 @@ arff-os/
 │   ├── next.config.mjs       # Next.js config with API proxy rewrites to Railway
 │   └── tailwind.config.js    # Tailwind styling tokens
 │
+├── deploy/                   # SELF-HOSTED INFRASTRUCTURE TEMPLATES
+│   └── mail/                 # Stalwart Mail Server (Docker Compose, ~35MB RAM)
+│
 ├── .github/                  # CI Pipeline (Go Vet/Build & Next.js Build)
 ├── .gitignore                # Aturan ignore untuk Go, Next.js, dan Node
 └── .env.example              # Template environment variable
@@ -78,3 +81,11 @@ arff-os/
 4. Tambahkan Environment Variable di Vercel:
    - `BACKEND_API_URL`: URL public service Railway Anda (contoh: `https://arff-os-backend.up.railway.app`).
 5. Klik **Deploy**.
+
+---
+
+### 4. Self-Hosted Mail Server (Opsional - Stalwart)
+Untuk menjalankan mail server open-source mandiri tanpa biaya langganan:
+- Masuk ke direktori [`deploy/mail/`](deploy/mail).
+- Ikuti panduan deployment pada [`deploy/mail/README.md`](deploy/mail/README.md).
+

@@ -1,0 +1,32 @@
+# ========================================================
+# ARFF-OS: Self-Hosted Stalwart Mail Server
+# Docs: https://stalw.art/docs/server/install/docker
+# ========================================================
+
+services:
+  stalwart-mail:
+    image: stalwartlabs/mail-server:latest
+    container_name: arff-os-mail-server
+    restart: unless-stopped
+    ports:
+      # Inbound SMTP (Server-to-Server MX)
+      - "${SMTP_INBOUND_PORT:-25}:25"
+      # Submission SMTP (STARTTLS for ARFF-OS backend app)
+      - "${SMTP_SUBMISSION_PORT:-587}:587"
+      # SMTPS (Implicit TLS)
+      - "${SMTPS_PORT:-465}:465"
+      # IMAP over TLS
+      - "${IMAPS_PORT:-993}:993"
+      # Web Admin Console & JMAP API
+      - "${ADMIN_PORT:-8443}:443"
+    environment:
+      - STALWART_HOSTNAME=${MAIL_HOSTNAME:-mail.example.com}
+    volumes:
+      # Data directory (persists configuration, DKIM keys, and emails)
+      # Strictly ignored in .gitignore
+      - ./data:/opt/stalwart-mail
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 587 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
