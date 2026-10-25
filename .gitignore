@@ -1,0 +1,41 @@
+# Golang
+backend/bin/
+backend/dist/
+backend/server
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Node / Frontend (Next.js & React)
+frontend/node_modules/
+frontend/dist/
+frontend/.next/
+frontend/.env.local
+frontend/.env.*.local
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+node_modules/
+dist/
+.next/
+
+# OS and Editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+
+# Customizations
+/.agent
+/.agents
+/.gemini
