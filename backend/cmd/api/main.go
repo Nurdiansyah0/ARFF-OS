@@ -13,6 +13,8 @@ import (
 	"github.com/Nurdiansyah0/arff-os-backend/internal/config"
 	"github.com/Nurdiansyah0/arff-os-backend/internal/database"
 	"github.com/Nurdiansyah0/arff-os-backend/internal/handler"
+	"github.com/Nurdiansyah0/arff-os-backend/internal/middleware"
+	"github.com/Nurdiansyah0/arff-os-backend/internal/repository"
 )
 
 // Middleware CORS
@@ -20,7 +22,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, X-Airport-ID")
 
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -52,6 +54,11 @@ func main() {
 		defer db.Pool.Close()
 	}
 
+	// Initialize Multi-Tenant Store
+	var sqlDB = db.Pool
+	store := repository.NewStore(sqlDB)
+	authHandler := handler.NewAuthHandler(store)
+
 	mux := http.NewServeMux()
 
 	healthH := &handler.HealthHandler{
@@ -64,7 +71,14 @@ func main() {
 	mux.Handle("GET /health", healthH)
 	mux.Handle("GET /api/health", healthH)
 
-	// API v1 Endpoints
+	// Public Auth Endpoints (SaaS Onboarding & Login)
+	mux.HandleFunc("POST /api/v1/auth/register-airport", authHandler.RegisterAirport)
+	mux.HandleFunc("POST /api/v1/auth/login", authHandler.Login)
+
+	// Protected Auth Endpoints (Requires Bearer JWT)
+	mux.Handle("GET /api/v1/auth/me", middleware.AuthMiddleware(http.HandlerFunc(authHandler.GetMe)))
+
+	// API v1 Endpoints (Operational stats)
 	mux.HandleFunc("GET /api/v1/dashboard/stats", handler.GetDashboardStats)
 
 	// Apply Middlewares
@@ -85,7 +99,7 @@ func main() {
 	signal.Notify(stopChan, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
-		log.Printf("ARFF-OS Golang Backend listening on port %s (env: %s)", cfg.Port, cfg.AppEnv)
+		log.Printf("ARFF-OS Golang Multi-Tenant SaaS Backend listening on port %s (env: %s)", cfg.Port, cfg.AppEnv)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server ListenAndServe error: %v", err)
 		}
