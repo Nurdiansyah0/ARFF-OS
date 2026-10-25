@@ -60,6 +60,8 @@ func main() {
 	store := repository.NewStore(sqlDB)
 	mailService := mailer.NewMailer()
 	authHandler := handler.NewAuthHandler(store, mailService)
+	fleetHandler := handler.NewFleetHandler(store)
+	approvalHandler := handler.NewApprovalHandler(store)
 
 	mux := http.NewServeMux()
 
@@ -81,6 +83,22 @@ func main() {
 
 	// Protected Auth Endpoints (Requires Bearer JWT)
 	mux.Handle("GET /api/v1/auth/me", middleware.AuthMiddleware(http.HandlerFunc(authHandler.GetMe)))
+
+	// Protected Fleet & Extinguishing Agents Endpoints (Phase 1)
+	mux.Handle("GET /api/v1/fleet/vehicles", middleware.AuthMiddleware(http.HandlerFunc(fleetHandler.GetVehicles)))
+	mux.Handle("POST /api/v1/fleet/vehicles", middleware.AuthMiddleware(http.HandlerFunc(fleetHandler.CreateVehicle)))
+	mux.Handle("GET /api/v1/fleet/vehicles/{id}", middleware.AuthMiddleware(http.HandlerFunc(fleetHandler.GetVehicle)))
+	mux.Handle("PUT /api/v1/fleet/vehicles/{id}", middleware.AuthMiddleware(http.HandlerFunc(fleetHandler.UpdateVehicle)))
+	mux.Handle("GET /api/v1/fleet/lop-status", middleware.AuthMiddleware(http.HandlerFunc(fleetHandler.GetLoPStatus)))
+	mux.Handle("POST /api/v1/fleet/inspections", middleware.AuthMiddleware(http.HandlerFunc(fleetHandler.SubmitInspection)))
+	mux.Handle("GET /api/v1/fleet/inspections", middleware.AuthMiddleware(http.HandlerFunc(fleetHandler.GetInspections)))
+	mux.Handle("GET /api/v1/fleet/stocks", middleware.AuthMiddleware(http.HandlerFunc(fleetHandler.GetStocks)))
+
+	// Protected Multi-Tier Approval Matrix Endpoints (Phase 2)
+	mux.Handle("POST /api/v1/approvals/submit", middleware.AuthMiddleware(http.HandlerFunc(approvalHandler.SubmitApproval)))
+	mux.Handle("GET /api/v1/approvals", middleware.AuthMiddleware(http.HandlerFunc(approvalHandler.GetApprovals)))
+	mux.Handle("GET /api/v1/approvals/{id}", middleware.AuthMiddleware(http.HandlerFunc(approvalHandler.GetApprovalDetail)))
+	mux.Handle("POST /api/v1/approvals/{id}/action", middleware.AuthMiddleware(http.HandlerFunc(approvalHandler.ProcessAction)))
 
 	// API v1 Endpoints (Operational stats)
 	mux.HandleFunc("GET /api/v1/dashboard/stats", handler.GetDashboardStats)
