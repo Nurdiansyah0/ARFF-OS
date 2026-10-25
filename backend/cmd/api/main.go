@@ -13,6 +13,7 @@ import (
 	"github.com/Nurdiansyah0/arff-os-backend/internal/config"
 	"github.com/Nurdiansyah0/arff-os-backend/internal/database"
 	"github.com/Nurdiansyah0/arff-os-backend/internal/handler"
+	"github.com/Nurdiansyah0/arff-os-backend/internal/mailer"
 	"github.com/Nurdiansyah0/arff-os-backend/internal/middleware"
 	"github.com/Nurdiansyah0/arff-os-backend/internal/repository"
 )
@@ -54,10 +55,11 @@ func main() {
 		defer db.Pool.Close()
 	}
 
-	// Initialize Multi-Tenant Store
+	// Initialize Multi-Tenant Store & Mailer
 	var sqlDB = db.Pool
 	store := repository.NewStore(sqlDB)
-	authHandler := handler.NewAuthHandler(store)
+	mailService := mailer.NewMailer()
+	authHandler := handler.NewAuthHandler(store, mailService)
 
 	mux := http.NewServeMux()
 
@@ -71,8 +73,10 @@ func main() {
 	mux.Handle("GET /health", healthH)
 	mux.Handle("GET /api/health", healthH)
 
-	// Public Auth Endpoints (SaaS Onboarding & Login)
+	// Public Auth Endpoints (SaaS Onboarding, Email OTP, & Login)
 	mux.HandleFunc("POST /api/v1/auth/register-airport", authHandler.RegisterAirport)
+	mux.HandleFunc("POST /api/v1/auth/verify-otp", authHandler.VerifyOTP)
+	mux.HandleFunc("POST /api/v1/auth/resend-otp", authHandler.ResendOTP)
 	mux.HandleFunc("POST /api/v1/auth/login", authHandler.Login)
 
 	// Protected Auth Endpoints (Requires Bearer JWT)

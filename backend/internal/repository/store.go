@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/Nurdiansyah0/arff-os-backend/internal/model"
@@ -15,7 +16,13 @@ var (
 	ErrUserNotFound    = errors.New("user not found")
 	ErrAirportNotFound = errors.New("airport not found")
 	ErrEmailExists     = errors.New("email is already registered")
+	ErrInvalidOTP      = errors.New("invalid or expired OTP code")
 )
+
+type otpRecord struct {
+	Code      string
+	ExpiresAt time.Time
+}
 
 type Store struct {
 	db *sql.DB
@@ -24,6 +31,7 @@ type Store struct {
 	mu       sync.RWMutex
 	airports map[uuid.UUID]*model.Airport
 	users    map[uuid.UUID]*model.User
+	otps     map[string]*otpRecord // key: email
 }
 
 func NewStore(db *sql.DB) *Store {
@@ -31,6 +39,7 @@ func NewStore(db *sql.DB) *Store {
 		db:       db,
 		airports: make(map[uuid.UUID]*model.Airport),
 		users:    make(map[uuid.UUID]*model.User),
+		otps:     make(map[string]*otpRecord),
 	}
 }
 
@@ -49,7 +58,6 @@ func (s *Store) CreateAirport(ctx context.Context, airport *model.Airport) error
 		if err == nil {
 			return nil
 		}
-		// If SQL execution failed (e.g. table not created yet), fallback to memory in dev
 	}
 
 	s.mu.Lock()
@@ -90,12 +98,12 @@ func (s *Store) GetAirportByID(ctx context.Context, id uuid.UUID) (*model.Airpor
 func (s *Store) CreateUser(ctx context.Context, user *model.User) error {
 	if s.db != nil {
 		query := `
-			INSERT INTO users (id, airport_id, name, email, nip, password_hash, role, phone, is_active, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			INSERT INTO users (id, airport_id, name, email, nip, password_hash, role, phone, is_active, is_verified, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		`
 		_, err := s.db.ExecContext(ctx, query,
 			user.ID, user.AirportID, user.Name, user.Email, user.NIP,
-			user.PasswordHash, user.Role, user.Phone, user.IsActive,
+			user.PasswordHash, user.Role, user.Phone, user.IsActive, user.IsVerified,
 			user.CreatedAt, user.UpdatedAt,
 		)
 		if err == nil {
@@ -117,11 +125,11 @@ func (s *Store) CreateUser(ctx context.Context, user *model.User) error {
 // GetUserByIdentifier retrieves user by either Email or NIP
 func (s *Store) GetUserByIdentifier(ctx context.Context, identifier string) (*model.User, error) {
 	if s.db != nil {
-		query := `SELECT id, airport_id, name, email, nip, password_hash, role, phone, is_active, created_at, updated_at FROM users WHERE email = $1 OR nip = $1 LIMIT 1`
+		query := `SELECT id, airport_id, name, email, nip, password_hash, role, phone, is_active, is_verified, created_at, updated_at FROM users WHERE email = $1 OR nip = $1 LIMIT 1`
 		row := s.db.QueryRowContext(ctx, query, identifier)
 		var u model.User
 		var nip, phone sql.NullString
-		err := row.Scan(&u.ID, &u.AirportID, &u.Name, &u.Email, &nip, &u.PasswordHash, &u.Role, &phone, &u.IsActive, &u.CreatedAt, &u.UpdatedAt)
+		err := row.Scan(&u.ID, &u.AirportID, &u.Name, &u.Email, &nip, &u.PasswordHash, &u.Role, &phone, &u.IsActive, &u.IsVerified, &u.CreatedAt, &u.UpdatedAt)
 		if err == nil {
 			if nip.Valid {
 				u.NIP = nip.String
@@ -147,11 +155,11 @@ func (s *Store) GetUserByIdentifier(ctx context.Context, identifier string) (*mo
 // GetUserByID retrieves user by UUID
 func (s *Store) GetUserByID(ctx context.Context, id uuid.UUID) (*model.User, error) {
 	if s.db != nil {
-		query := `SELECT id, airport_id, name, email, nip, password_hash, role, phone, is_active, created_at, updated_at FROM users WHERE id = $1`
+		query := `SELECT id, airport_id, name, email, nip, password_hash, role, phone, is_active, is_verified, created_at, updated_at FROM users WHERE id = $1`
 		row := s.db.QueryRowContext(ctx, query, id)
 		var u model.User
 		var nip, phone sql.NullString
-		err := row.Scan(&u.ID, &u.AirportID, &u.Name, &u.Email, &nip, &u.PasswordHash, &u.Role, &phone, &u.IsActive, &u.CreatedAt, &u.UpdatedAt)
+		err := row.Scan(&u.ID, &u.AirportID, &u.Name, &u.Email, &nip, &u.PasswordHash, &u.Role, &phone, &u.IsActive, &u.IsVerified, &u.CreatedAt, &u.UpdatedAt)
 		if err == nil {
 			if nip.Valid {
 				u.NIP = nip.String
@@ -170,4 +178,83 @@ func (s *Store) GetUserByID(ctx context.Context, id uuid.UUID) (*model.User, err
 		return nil, ErrUserNotFound
 	}
 	return u, nil
+}
+
+// SaveOTP stores an OTP code with expiration
+func (s *Store) SaveOTP(ctx context.Context, email, code string, duration time.Duration) error {
+	normalizedEmail := strings.ToLower(strings.TrimSpace(email))
+	expiresAt := time.Now().Add(duration)
+
+	if s.db != nil {
+		// Delete any existing OTP for this email
+		_, _ = s.db.ExecContext(ctx, `DELETE FROM otp_verifications WHERE email = $1`, normalizedEmail)
+
+		query := `INSERT INTO otp_verifications (id, email, code, expires_at, created_at) VALUES ($1, $2, $3, $4, $5)`
+		_, err := s.db.ExecContext(ctx, query, uuid.New(), normalizedEmail, code, expiresAt, time.Now())
+		if err == nil {
+			return nil
+		}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.otps[normalizedEmail] = &otpRecord{
+		Code:      code,
+		ExpiresAt: expiresAt,
+	}
+	return nil
+}
+
+// ValidateAndConsumeOTP verifies if OTP code matches and has not expired
+func (s *Store) ValidateAndConsumeOTP(ctx context.Context, email, code string) error {
+	normalizedEmail := strings.ToLower(strings.TrimSpace(email))
+
+	if s.db != nil {
+		var storedCode string
+		var expiresAt time.Time
+		query := `SELECT code, expires_at FROM otp_verifications WHERE email = $1 ORDER BY created_at DESC LIMIT 1`
+		err := s.db.QueryRowContext(ctx, query, normalizedEmail).Scan(&storedCode, &expiresAt)
+		if err == nil {
+			if time.Now().After(expiresAt) || storedCode != strings.TrimSpace(code) {
+				return ErrInvalidOTP
+			}
+			// Delete consumed OTP
+			_, _ = s.db.ExecContext(ctx, `DELETE FROM otp_verifications WHERE email = $1`, normalizedEmail)
+			return nil
+		}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rec, ok := s.otps[normalizedEmail]
+	if !ok {
+		return ErrInvalidOTP
+	}
+
+	if time.Now().After(rec.ExpiresAt) || rec.Code != strings.TrimSpace(code) {
+		return ErrInvalidOTP
+	}
+
+	delete(s.otps, normalizedEmail)
+	return nil
+}
+
+// MarkUserVerified sets is_verified to true for the given user email
+func (s *Store) MarkUserVerified(ctx context.Context, email string) error {
+	normalizedEmail := strings.ToLower(strings.TrimSpace(email))
+
+	if s.db != nil {
+		_, _ = s.db.ExecContext(ctx, `UPDATE users SET is_verified = TRUE, updated_at = NOW() WHERE email = $1`, normalizedEmail)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, u := range s.users {
+		if strings.EqualFold(u.Email, normalizedEmail) {
+			u.IsVerified = true
+			u.UpdatedAt = time.Now()
+			return nil
+		}
+	}
+	return nil
 }
